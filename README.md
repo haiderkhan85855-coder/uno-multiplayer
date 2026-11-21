@@ -1,1 +1,58 @@
-# uno-multiplayer
+# Off the Grid — Sunset District
+
+A third-person Three.js game with two coastal neighborhoods, a driveable beach, and four rides: car, scooter, motorcycle, and bicycle. The game has no login, build step, or external runtime requests.
+
+## Play
+
+Use the live preview, or serve this folder with any static HTTP server:
+
+```sh
+python3 -m http.server 8000
+```
+
+Open **http://localhost:8000** in a browser with WebGL 2. Serve the folder over HTTP rather than opening `index.html` as a `file://` URL, which browsers restrict for modules and model loading.
+
+| Control | Action |
+| --- | --- |
+| WASD | Walk relative to the camera. On a vehicle, W accelerates, S brakes/reverses, and A/D steer. |
+| Shift / Space | Run / jump on foot |
+| Drag | Orbit the camera; it settles behind your vehicle after a short delay |
+| E | Enter a nearby vehicle or dismount to a clear spot |
+| Esc / R | Pause / reset the player, parked rides, and current attempt without losing records |
+| Speaker button | Mute or unmute the synthesized audio |
+
+Touch devices have on-screen movement, jump, run, and interaction buttons. On the minimap, outlined colored dots are parked rides, small gold dots are coins, green is a delivery target, and blue shows the race gates. NPC traffic is decorative and never collides with the player.
+
+## Activities
+
+Choose an activity on the title screen, then press the yellow start button. To change activities, pause and select **Back to title**.
+
+- **Free Roam:** Explore Sunset District, Lantern Bay, the boardwalk, and the beach. Run or drive through any of the 20 coins to collect it. Coins can also be collected in Delivery and Race.
+- **Delivery:** Walk or drive into the glowing green pickup ring to collect the parcel. That starts the countdown and reveals the drop-off ring. Reach it before time runs out. Three jobs rotate as you complete them; use **Next job** or **Retry** to start another attempt.
+- **Race:** Cross the blue start gate to begin Harbor Sprint, then pass through the five remaining gates in order, on foot or in a vehicle. The HUD shows your last and best times. Use **Race again** to retry.
+
+Delivery totals, coin IDs, and race times are saved locally for this browser and origin. There is no account or cross-device sync. Pausing stops mission clocks.
+
+## Code and assets
+
+- `game.js`: existing input, player and vehicle movement, camera, and HUD/minimap integration.
+- `missions.js`: jobs, checkpoint course, coins, title menu, and local progress. Spot and gate coordinates are defined at the top.
+- `town.js`: roads, collision bounds, buildings, beach, and animated sunset scenery.
+- `vehicles.js`: handling, GLB loading with procedural fallbacks, and NPC traffic. `player-model.js` handles rigged movement; `sound.js` synthesizes all audio with Web Audio.
+
+To add a vehicle, copy an entry in `vehicleSpecs` and give it a unique `id`, display `name`, marker `color`, and `spawn: [x, z, heading]` (heading `0` faces negative Z). Adjust `max`, `reverse`, `accel`, `brake`, `drag`, and `steer`. `radius` and `axle` set the collision footprint; `range` sets interaction distance and `camera` sets follow distance. A `seat: [height, z]` shows a rider. Geometry and speeds use meters and seconds.
+
+Implement `build(color)` to return a `{ mesh, wheels }` fallback. Add an optional `model: { url, yaw, scale, wheels, wheelAxis }` for a GLB in `models/`, with any textures alongside it. Only `url` is required; wheel names and the local wheel axis (X by default) enable wheel rotation. See [model credits](models/README.md) for the bundled assets and their licenses.
+
+## Verification
+
+With the static server running, install the optional test dependency and run the Chromium tests. None of this is needed to play:
+
+```sh
+npm install --no-save --no-package-lock playwright-core
+CHROMIUM_PATH=/path/to/chromium node tests/smoke.mjs
+CHROMIUM_PATH=/path/to/chromium node tests/missions.mjs
+FALLBACKS=1 CHROMIUM_PATH=/path/to/chromium node tests/smoke.mjs
+```
+
+The smoke test covers all four rides, walking, sprinting, jumping, orbiting, pause/reset, and model loading. `FALLBACKS=1` supplies invalid GLBs to check that the game still plays with the procedural models. The mission test makes a full delivery, runs all six gates, collects coins, checks persistence, and drives onto the beach. Real-device touch, cross-browser performance, and subjective audio balance have not been verified.

@@ -1,8 +1,11 @@
 import * as T from 'three';
 import { box, material, makeTown, HORIZONTAL_ROADS, VERTICAL_ROADS, BOUNDS, DISTRICT_LINE, ROAD_END, BOARDWALK, SHORE, HAZE, asphalt } from './town.js';
-import { vehicleSpecs, spawnVehicle, resetVehicle, makeTraffic } from './vehicles.js';
+import { vehicleSpecs, spawnVehicle, resetVehicle, animateWheels, updateVehicleLights } from './vehicles.js';
 import { createMissions, wireMissionMenu, chosenMode } from './missions.js';
 import { createSound } from './sound.js';
+import { createSignals, makeTraffic, createPedestrians } from './traffic.js';
+import { makeSunsetEnvironment } from './streetscape.js';
+import { flyovers, makeFlyovers, bridgeBlocks, surfaceAt, onFlyover, deckAt, deckOccludes } from './bridges.js';
 import { loadRunner, animateRunner } from './player-model.js';
 
 const $ = id => document.getElementById(id);
@@ -12,7 +15,7 @@ const approach = (value,target,step) => value + clamp(target-value,-step,step);
 const angleDelta = (a,b) => Math.atan2(Math.sin(b-a),Math.cos(b-a));
 const SMOOTH = (rate,dt) => 1 - Math.exp(-rate*dt);
 const INITIAL = [3.15,.04,34];
-const inputCodes = new Set(['KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','Space','KeyE','KeyR','Escape']);
+const inputCodes = new Set(['KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','Space','KeyE','KeyR','KeyH','Escape']);
 let game;
 wireMissionMenu();
 
@@ -52,18 +55,22 @@ function createGame() {
   const renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
   renderer.toneMapping=T.ACESFilmicToneMapping; renderer.toneMappingExposure=1.21;
-  const scene=new T.Scene();scene.background=new T.Color(HAZE);scene.fog=new T.FogExp2(HAZE,.0044);
+  const scene=new T.Scene();scene.background=new T.Color(HAZE);scene.fog=new T.FogExp2(HAZE,.00465);
+  makeSunsetEnvironment(renderer,scene);
   scene.add(new T.HemisphereLight(0xffe5cc,0xa89bb8,1.85));
   const sun=new T.DirectionalLight(0xffc486,2.72);scene.add(sun,sun.target);sun.castShadow=true;
   sun.shadow.mapSize.set(1536,1536);Object.assign(sun.shadow.camera,{left:-31,right:31,top:31,bottom:-31,near:.1,far:144});
   sun.shadow.camera.updateProjectionMatrix();sun.shadow.bias=-.00024;sun.shadow.normalBias=.035;
   const town=makeTown(scene), camera=new T.PerspectiveCamera(57,1,.11,560);
+  const piers=makeFlyovers(scene);town.colliders.push(...piers);town.cameraBlockers.push(...piers);
   const player=makePlayer(scene), rider=makePlayer(scene);
   rider.root.visible=false;loadRunner(player,rider);
-  const sound=createSound(),missions=createMissions(scene,sound),traffic=makeTraffic(scene);
+  const sound=createSound(),missions=createMissions(scene,sound);
+  const signals=createSignals(scene),traffic=makeTraffic(scene,signals),pedestrians=createPedestrians(scene);
+  const beams=[-1,1].map(()=>{const l=new T.SpotLight(0xffe1ad,0,25,.29,.76,1.8);scene.add(l,l.target);return l;});
   const vehicles=vehicleSpecs.map(spec=>{const v=spawnVehicle(spec);scene.add(v.root);v.badge=vehicleBadge(v);return v;});
-  const g={renderer,scene,camera,town,player,rider,vehicles,active:null,sun,sound,missions,traffic,keys:new Set(),touchKeys:new Map(),seen:new Set(),
-    state:'title',camYaw:0,camPitch:.43,cameraFocus:new T.Vector3(),drag:null,lastDrag:-Infinity,last:0,noticeUntil:0, map:document.createElement('canvas')};
+  const g={renderer,scene,camera,town,player,rider,vehicles,active:null,sun,sound,missions,traffic,signals,pedestrians,beams,lightsOn:true,keys:new Set(),touchKeys:new Map(),seen:new Set(),
+    quality:{mean:0,frames:0,changes:0},state:'title',camYaw:0,camPitch:.34,cameraFocus:new T.Vector3(),drag:null,lastDrag:-Infinity,last:0,noticeUntil:0, map:document.createElement('canvas')};
   renderer.domElement.tabIndex=0;renderer.domElement.setAttribute('aria-label','Town view. Drag to orbit the camera.');
   ui.viewport.replaceChildren(renderer.domElement);
   prepareMap(g);setupInput(g);resize(g);reset(g);
@@ -87,13 +94,14 @@ function reset(g,mode=g.missions.mode) {
   dismountRider(g);g.active=null;g.seen.clear();g.noticeUntil=0;g.vehicles.forEach(resetVehicle);
   const p=g.player;p.root.position.set(...INITIAL);p.root.visible=true;p.heading=0;p.root.rotation.y=0;p.vertical=0;p.grounded=true;p.phase=0;
   p.figure.position.y=0;for(const j of [...p.arms,...p.legs])j.rotation.x=0;
-  g.camYaw=0;g.camPitch=.43;g.lastDrag=-Infinity;
+  g.camYaw=0;g.camPitch=.34;g.lastDrag=-Infinity;
   updateCamera(g,0,true);g.town.update(0,g.camera);updateHud(g,0);
 }
 function setupInput(g) {
   function press(code) {
     if(code==='KeyE')interact(g);
     if(code==='KeyR')reset(g);
+    if(code==='KeyH')toggleHeadlights(g);
     if(code==='Space'&&!g.active&&g.player.grounded){g.player.vertical=6.7;g.player.grounded=false;}
   }
   window.addEventListener('keydown',event=>{
@@ -133,6 +141,7 @@ function setupInput(g) {
   }
   ui.pause.onclick=()=>setState(g,'paused');ui.resume.onclick=()=>setState(g,'play');
   g.missions.restart.onclick=()=>{reset(g);view.focus();};
+  $('headlight-toggle').onclick=()=>{toggleHeadlights(g);view.focus();};
   $('sound-toggle').onclick=()=>{
     const muted=g.sound.toggle(g.state==='play'), button=$('sound-toggle');
     button.setAttribute('aria-pressed',String(muted));button.setAttribute('aria-label',muted?'Unmute sound':'Mute sound');button.title=muted?'Unmute sound':'Mute sound';
@@ -143,8 +152,9 @@ function setupInput(g) {
 function nearest(g) {
   const p=g.player.root.position;
   let dist=Infinity, best=null;
-  if(p.y>1.2)return null;
+
   for(const v of g.vehicles) {
+    if(Math.abs(p.y-v.root.position.y)>1.2)continue;
     const d=Math.hypot(p.x-v.root.position.x,p.z-v.root.position.z);
     if(d<v.range&&d<dist){dist=d;best=v;}
   }
@@ -159,8 +169,9 @@ function interact(g) {
       const off=right?gap:(v.axle+gap);
       const x=pos.x+(right*Math.cos(yaw)+back*Math.sin(yaw))*off;
       const z=pos.z+(-right*Math.sin(yaw)+back*Math.cos(yaw))*off;
-      if(blocked(g,x,z,.33,.04))continue;
-      v.speed=0;dismountRider(g);g.active=null;p.root.position.set(x,.04,z);p.heading=yaw;p.root.rotation.y=yaw;p.root.visible=true;p.vertical=0;p.grounded=true;
+      const ground=surfaceAt(x,z,pos.y),y=Math.max(ground,pos.y);
+      if(blocked(g,x,z,.33,y))continue;
+      v.speed=0;updateVehicleLights(v,false,false);dismountRider(g);g.active=null;p.root.position.set(x,y,z);p.heading=yaw;p.root.rotation.y=yaw;p.root.visible=true;p.vertical=0;p.grounded=y-ground<.05;
       return;
     }
   } else {
@@ -182,13 +193,20 @@ function dismountRider(g) {
 }
 function blocked(g,x,z,r,y,skip) {
   if(x-r<BOUNDS.left||x+r>BOUNDS.right||z-r<BOUNDS.top||z+r>BOUNDS.bottom)return true;
+  if(bridgeBlocks(x,z,r,y,skip?1.53:1.66))return true;
   for(const b of g.town.colliders) {
     if(y>=b.h)continue;
+    if(b.bridgePier){
+      const deck=deckAt(x,z);
+      // A circle can overlap the top corner of a pier on a descending slope.
+      // Its deck is the driving surface, not a second obstacle.
+      if(deck!==null&&y>=deck-.10)continue;
+    }
     const dx=Math.max(Math.abs(x-b.x)-b.w/2,0), dz=Math.max(Math.abs(z-b.z)-b.d/2,0);
     if(dx*dx+dz*dz<r*r)return true;
   }
   for(const v of g.vehicles) {
-    if(v===skip||y>1.45)continue;
+    if(v===skip||Math.abs(y-v.root.position.y)>1.45)continue;
     const dx=x-v.root.position.x,dz=z-v.root.position.z, s=Math.sin(v.heading),c=Math.cos(v.heading);
     if(dx*dx+dz*dz>(r+v.radius+v.axle)**2)continue;
     const localX=dx*c-dz*s,localZ=dx*s+dz*c;
@@ -198,7 +216,7 @@ function blocked(g,x,z,r,y,skip) {
 }
 function stepPlayer(g,dt,key) {
   const p=g.player,pos=p.root.position;
-  if(!p.grounded){pos.y+=p.vertical*dt;p.vertical-=18*dt;if(pos.y<=.04){pos.y=.04;p.vertical=0;p.grounded=true;}}
+
   const right=+key('KeyD')-key('KeyA'), forward=+key('KeyW')-key('KeyS');
   const running=key('ShiftLeft')||key('ShiftRight');
   const beforeX=pos.x,beforeZ=pos.z;
@@ -209,6 +227,15 @@ function stepPlayer(g,dt,key) {
     if(!blocked(g,pos.x+x*dt,pos.z,.33,pos.y))pos.x+=x*dt;
     if(!blocked(g,pos.x,pos.z+z*dt,.33,pos.y))pos.z+=z*dt;
   }
+  const floor=surfaceAt(pos.x,pos.z,pos.y,p.grounded?.32:.035);
+  if(p.grounded&&Math.abs(pos.y-floor)>.38)p.grounded=false;
+  if(!p.grounded){
+    p.vertical-=18*dt;
+    const next=pos.y+p.vertical*dt;
+    if(p.vertical<=0&&next<=floor){pos.y=floor;p.vertical=0;p.grounded=true;}
+    else if(p.vertical>0&&deckOccludes(pos.x,pos.z,next+1.61)&&!deckOccludes(pos.x,pos.z,pos.y+1.61))p.vertical=0;
+    else pos.y=next;
+  }else pos.y=floor;
   const speed=Math.hypot(pos.x-beforeX,pos.z-beforeZ)/dt || 0;
   animateRunner(p,dt,speed);
   const scale=speed>.1?(running?.89:.64):0;
@@ -222,7 +249,6 @@ function stepPlayer(g,dt,key) {
   p.figure.position.y=p.grounded?Math.abs(swing)*.055:0;
   return speed;
 }
-const X_AXIS=new T.Vector3(1,0,0);
 function stepVehicle(g,dt,key) {
   const v=g.active,pos=v.root.position;
   const throttle=+key('KeyW')-key('KeyS'), turn=+key('KeyA')-key('KeyD');
@@ -232,13 +258,24 @@ function stepVehicle(g,dt,key) {
   const yaw=v.heading+turn*v.steer*Math.sign(v.speed)*Math.min(Math.abs(v.speed)/2.4,1)*dt*(1-.34*Math.min(Math.abs(v.speed)/v.max,1));
   function can(x,z,h){
     const sx=Math.sin(h)*v.axle,sz=Math.cos(h)*v.axle;
-    return !blocked(g,x-sx,z-sz,v.radius,.04,v)&&!blocked(g,x,z,v.radius,.04,v)&&!blocked(g,x+sx,z+sz,v.radius,.04,v);
+    return [-1,0,1].every(i=>{
+      const xx=x+sx*i,zz=z+sz*i;
+      const floor=surfaceAt(xx,zz,pos.y,i===0?.34:.57);
+      return !blocked(g,xx,zz,v.radius,Math.max(pos.y,floor),v);
+    });
   }
   const nx=pos.x-Math.sin(yaw)*v.speed*dt,nz=pos.z-Math.cos(yaw)*v.speed*dt;
   if(can(nx,nz,yaw)) {pos.x=nx;pos.z=nz;v.heading=yaw;}
   else {if(can(pos.x,pos.z,yaw))v.heading=yaw;v.speed=0;}
   v.root.rotation.y=v.heading;
-  for(const wheel of v.wheels)wheel.rotateOnAxis(v.wheelAxis??X_AXIS,-v.speed*dt*(v.wheelDirection??1)/(v.wheelRadius??.36));
+  const floor=surfaceAt(pos.x,pos.z,pos.y,v.fall?.04:.34);
+  if(floor>=pos.y-.36&&!v.fall){pos.y=floor;}
+  else {v.fall=(v.fall??0)-17*dt;pos.y+=v.fall*dt;if(pos.y<=floor){pos.y=floor;v.fall=0;}}
+  const length=v.axle+.45, sx=Math.sin(v.heading)*length,sz=Math.cos(v.heading)*length;
+  const slope=surfaceAt(pos.x-sx,pos.z-sz,pos.y,.72)-surfaceAt(pos.x+sx,pos.z+sz,pos.y,.72);
+  const pitch=v.fall?-.10:clamp(Math.atan2(slope,2*length),-.34,.34);
+  v.mesh.rotation.x=T.MathUtils.lerp(v.mesh.rotation.x,pitch,SMOOTH(10,dt));
+  animateWheels(v,dt,v.speed,turn);updateVehicleLights(v,g.lightsOn,opposing);
   v.mesh.rotation.z=T.MathUtils.lerp(v.mesh.rotation.z,turn*(v.lean??.027)*Math.min(Math.abs(v.speed)/4,1),SMOOTH(7,dt));
   if(v.id==='bicycle') {
     g.rider.phase+=v.speed*dt*3.6;
@@ -246,6 +283,23 @@ function stepVehicle(g,dt,key) {
     g.rider.legs[0].rotation.x=.71+pedal;g.rider.legs[1].rotation.x=.71-pedal;
   }
   return Math.abs(v.speed);
+}
+function toggleHeadlights(g){
+  if(!g.active?.lamps)return;
+  g.lightsOn=!g.lightsOn;
+  const button=$('headlight-toggle');button.setAttribute('aria-pressed',String(g.lightsOn));
+  button.title=g.lightsOn?'Switch headlights off (H)':'Switch headlights on (H)';
+}
+function aimHeadlights(g){
+  const v=g.active;
+  for(const [i,b] of g.beams.entries()){
+    b.intensity=v?.lamps&&g.lightsOn?44:0;
+    if(!b.intensity)continue;
+    const [x,y,front]=v.lamps,side=i===0?-1:1;
+    v.root.updateMatrixWorld(true);
+    b.position.set(side*x,y,front-.1);v.mesh.localToWorld(b.position);
+    b.target.position.set(side*(x+.58),.19,front-10);v.mesh.localToWorld(b.target.position);
+  }
 }
 const SUN_OFFSET=new T.Vector3(38,21,-59);
 const focus = new T.Vector3(), desired = new T.Vector3(), offset = new T.Vector3(), ray=new T.Ray(), hit=new T.Vector3(), bounds=new T.Box3();
@@ -262,6 +316,10 @@ function updateCamera(g,dt,snap=false) {
     if(Math.abs(b.x-focus.x)>17||Math.abs(b.z-focus.z)>17)continue;
     bounds.min.set(b.x-b.w/2,-.03,b.z-b.d/2);bounds.max.set(b.x+b.w/2,b.h,b.z+b.d/2);
     if(!bounds.containsPoint(ray.origin)&&ray.intersectBox(bounds,hit))len=Math.min(len,Math.max(.35,ray.origin.distanceTo(hit)-.21));
+  }
+  for(let t=.3;t<len;t+=.22){
+    hit.copy(g.cameraFocus).addScaledVector(ray.direction,t);
+    if(deckOccludes(hit.x,hit.z,hit.y)){len=Math.max(.32,t-.16);break;}
   }
   desired.copy(g.cameraFocus).addScaledVector(ray.direction,len);g.camera.position.copy(desired);
   g.camera.lookAt(g.cameraFocus);
@@ -292,24 +350,44 @@ function updateHud(g,speed) {
   ui.visit.hidden=performance.now()>g.noticeUntil;
   const m=ui.minimap.getContext('2d');
   m.clearRect(0,0,160,160);m.save();m.beginPath();m.roundRect(3,3,154,154,10);m.clip();m.drawImage(g.map,0,0);
-  g.missions.map(m,mapX,mapZ);
+  const at=(a??g.player).root.position, elevated=onFlyover(at.x,at.z,at.y);
+  m.setLineDash([2,2]);m.lineWidth=2;
+  for(const b of flyovers){
+    m.strokeStyle=elevated===b?'#9cf0ef':'#a2bfc9';m.beginPath();m.moveTo(mapX(b.x),mapZ(b.profile[0][0]));m.lineTo(mapX(b.x),mapZ(b.profile.at(-1)[0]));m.stroke();
+  }
+  m.setLineDash([]);g.missions.map(m,mapX,mapZ);
   for(const v of g.vehicles) {
     v.badge.visible=v!==a&&v.root.position.distanceToSquared((a??g.player).root.position)<32**2;
     if(v===a)continue;
     m.beginPath();m.arc(mapX(v.root.position.x),mapZ(v.root.position.z),3,0,Math.PI*2);m.fillStyle=`#${v.color.toString(16)}`;m.fill();m.strokeStyle='#1d2e42';m.stroke();
   }
   const p=a??g.player,pos=p.root.position;
-  const district=pos.x>BOARDWALK+3?'Sunset Beach':pos.x>DISTRICT_LINE?'Lantern Bay':'Sunset District';
+  const bridge=onFlyover(pos.x,pos.z,pos.y);
+  const district=bridge?.name??(pos.x>BOARDWALK+3?'Sunset Beach':pos.x>DISTRICT_LINE?'Lantern Bay':'Sunset District');
+  $('map-level').hidden=!bridge;
+  $('headlight-toggle').hidden=!a?.lamps;
   if($('district-name').textContent!==district)$('district-name').textContent=district;
   m.translate(mapX(pos.x),mapZ(pos.z));m.rotate(-p.heading);
   m.beginPath();m.moveTo(0,-6);m.lineTo(4,4);m.lineTo(0,2);m.lineTo(-4,4);m.closePath();m.fillStyle='#fff2c9';m.fill();m.lineWidth=1.1;m.strokeStyle='#13243a';m.stroke();m.restore();
+}
+function adaptRenderScale(g,seconds){
+  if(!seconds)return;
+  const q=g.quality;q.mean=q.frames===0?seconds:q.mean*.89+seconds*.11;q.frames++;
+  if(q.frames<15||q.mean<.091||q.changes>=2)return;
+  q.frames=0;q.changes++;
+  const scale=Math.min(devicePixelRatio,q.changes===1?1:.78)*.85;
+  g.renderer.setPixelRatio(scale);
+  if(q.changes===1){
+    const shadow=g.sun.shadow;shadow.map?.dispose();shadow.map=null;shadow.mapSize.set(1024,1024);
+  }
 }
 function animate(g,time) {
   requestAnimationFrame(t=>animate(g,t));
   if(g.state!=='play')return;
   const seconds=g.last?Math.max(0,(time-g.last)/1000):0;g.last=time;
   // Small collision steps preserve handling even on displays that are slow to render.
-  const frame=seconds?clamp(seconds,.001,.30):1/60;
+  adaptRenderScale(g,seconds);
+  const frame=seconds?clamp(seconds,.001,.40):1/60;
   const steps=Math.ceil(frame/.034), dt=frame/steps;
   const held=new Set(g.touchKeys.values());
   const key=code=>g.keys.has(code)||held.has(code);
@@ -320,7 +398,8 @@ function animate(g,time) {
   }
   const pos=(g.active??g.player).root.position;
   g.missions.sync();g.sound.tick(frame,g.active,speed,g.player.grounded,pos.x,pos.z);
-  g.traffic(frame,pos);updateCamera(g,frame);g.town.update(frame,g.camera);updateHud(g,speed);
+  g.signals.tick(frame,pos);g.traffic.tick(frame,pos);g.pedestrians.tick(frame,pos,g.active,g.traffic.cars);
+  aimHeadlights(g);updateCamera(g,frame);g.town.update(frame,g.camera);updateHud(g,speed);
   g.renderer.render(g.scene,g.camera);
 }
 export function startGame() {

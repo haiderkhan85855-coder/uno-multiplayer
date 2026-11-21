@@ -9,7 +9,7 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
 });
 try {
-  const page = await browser.newPage({ viewport: { width: 720, height: 500 } });
+  const page = await browser.newPage({ viewport: { width: 520, height: 390 } });
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
@@ -72,7 +72,7 @@ try {
   await wait(() => window.testGame().state === 'play');
   console.log('PASS: running, jumping, orbiting, reset, pause and resume');
 
-  for (const [id,name] of [['scooter','Scooter'],['motorcycle','Motorcycle'],['bicycle','Bicycle']]) {
+  for (const [id,name] of [['scooter','Scooter'],['motorcycle','Motorcycle'],['bicycle','Bicycle'],['suv','SUV'],['pickup','Pickup'],['sports','Sports Car']]) {
     // Stage each independent test just behind the parked ride, then approach using the keyboard.
     await page.keyboard.press('r');
     await page.evaluate(id => {
@@ -86,12 +86,13 @@ try {
   }
   if (fallbacks) {
     assert.ok(await page.evaluate(() => window.testGame().player.figure.visible));
-    assert.deepEqual(await page.evaluate(() => window.testGame().vehicles.map(v => v.wheels.length)), [4,2,2,2]);
+    assert.deepEqual(await page.evaluate(() => window.testGame().vehicles.map(v => v.wheels.length)), [4,2,2,2,4,4,4]);
   } else {
-    await wait(() => window.testGame().vehicles.find(v=>v.id==='car').wheels.some(w=>w.name==='wheel_frontLeft'));
+    await wait(() => window.testGame().vehicles.find(v=>v.id==='car').wheels.some(w=>w.name==='wheel-front-left'));
     await wait(() => window.testGame().vehicles.find(v=>v.id==='motorcycle').wheels.some(w=>w.name==='wheel-front'));
     await wait(() => window.testGame().vehicles.find(v=>v.id==='scooter').wheels.some(w=>w.name==='RearWheel'));
     await wait(() => window.testGame().vehicles.find(v=>v.id==='bicycle').wheels.some(w=>w.name==='BackWheel'));
+    await wait(() => ['suv','pickup','sports'].every(id=>window.testGame().vehicles.find(v=>v.id===id).wheels.some(w=>w.name==='wheel-front-left')));
     await wait(() => !!window.testGame().player.anim?.actions.run);
   }
   await page.getByRole('button',{name:'Pause',exact:true}).click();

@@ -95,89 +95,112 @@ function bicycle(color) {
   return {mesh,wheels};
 }
 
+const fourWheels=['wheel-front-left','wheel-front-right','wheel-back-left','wheel-back-right'];
+const roadModel=(id,scale)=>({url:`models/traffic/${id}.glb`,yaw:Math.PI,scale,wheelRadius:.3*scale,wheels:fourWheels,wheelDirection:-1,paint:true});
 // Heading zero is forward along -Z. Dimensions and speeds use meters and seconds.
 export const vehicleSpecs = [
-  {id:'car',name:'Car',color:0xf6b52f,spawn:[3.15,24,0],max:21,reverse:6,accel:7,brake:17,drag:1.9,steer:1.60,radius:.97,axle:1.00,range:3.45,camera:8.5,build:car,
-    model:{url:'models/kenney-sedan.glb',scale:1.52,wheelRadius:.456,wheels:['wheel_frontLeft','wheel_frontRight','wheel_backLeft','wheel_backRight'],
-      matte:true,palette:{paintRed:0xf6b52f,window:glass,plastic:black,carTire:rubber,_defaultMat:0xc6c8bd}}},
+  {id:'car',name:'Car',color:0xf6b52f,spawn:[3.15,24,0],max:21,reverse:6,accel:7,brake:17,drag:1.9,steer:1.60,radius:1.00,axle:1,range:3.45,camera:8.5,
+    build:car,model:roadModel('sedan',1.52),lamps:[.69,.73,-1.91,1.94],variant:'Sedan'},
   {id:"scooter",name:"Scooter",color:0x39bfb7,spawn:[-17,3.7,-Math.PI/2],max:13.7,reverse:3.7,accel:5.8,brake:12,drag:2.0,steer:2.46,radius:.38,axle:.55,range:2.4,camera:6.2,wheelRadius:.285,lean:.22,seat:[.91,.37],build:scooter,
     model:{url:'models/seafoam-scooter.glb',wheels:['FrontWheel','RearWheel'],seat:[.87,.36]}},
   {id:'motorcycle',name:'Motorcycle',color:0xed7150,spawn:[18,-3.65,Math.PI/2],max:26,reverse:4,accel:10,brake:16,drag:2.6,steer:1.92,radius:.47,axle:.66,range:2.65,camera:6.9,wheelRadius:.30,lean:.30,seat:[.89,.40],build:motorcycle,
     model:{url:'models/kenney-motorcycle.glb',yaw:Math.PI, wheels:['wheel-front','wheel-back'],wheelDirection:-1}},
   {id:'bicycle',name:'Bicycle',color:0x81ac62,spawn:[74.2,17,Math.PI],max:8.5,reverse:2.9,accel:3.8,brake:10,drag:1.15,steer:3.10,radius:.34,axle:.58,range:2.35,camera:5.8,wheelRadius:.35,lean:.23,seat:[1.06,.31],build:bicycle,
     model:{url:'models/quaternius-bicycle.glb',scale:1.12,yaw:Math.PI,wheelRadius:.338,wheelAxis:[0,1,0],wheels:['FrontWheel','BackWheel'],seat:[1.0,.35],palette:{Bike:0x81ac62,Handle:0xd8bd9a}}},
+  {id:'suv',name:'SUV',color:0x58a495,spawn:[51.2,66,0],max:20,reverse:5.2,accel:6.4,brake:15,drag:2.2,steer:1.43,radius:1.02,axle:1.13,range:3.55,camera:8.9,
+    build:car,model:roadModel('suv',1.47),lamps:[.70,.91,-2.09,2.04]},
+  {id:'pickup',name:'Pickup',color:0xe1d3b5,spawn:[-51.3,-67,Math.PI],max:18.7,reverse:6.8,accel:5.9,brake:15,drag:1.75,steer:1.28,radius:1.02,axle:1.14,range:3.55,camera:9.2,
+    build:car,model:roadModel('truck',1.54),lamps:[.69,.82,-2.10,2.08]},
+  {id:'sports',name:'Sports Car',color:0xd44b49,spawn:[134.9,29,Math.PI],max:29,reverse:5.8,accel:10.6,brake:20,drag:2.7,steer:1.82,radius:.90,axle:1.00,range:3.40,camera:8.4,
+    build:car,model:roadModel('sports',1.52),lamps:[.67,.65,-1.91,1.95]},
 ];
 
 export function spawnVehicle(spec) {
   const root=new T.Group(), {mesh,wheels}=spec.build(spec.color);
   root.add(mesh);
   const vehicle={...spec,root,mesh,wheels,speed:0,heading:0};
+  pivotWheels(vehicle,w=>w.position.z<-.25);
+  if(spec.lamps)vehicle.lighting=makeLights(vehicle);
   resetVehicle(vehicle);
   if(spec.model) mountAsset(vehicle);
   return vehicle;
 }
 export function resetVehicle(v) {
   const [x,z,heading]=v.spawn;
-  v.root.position.set(x,.035,z);v.heading=heading;v.root.rotation.y=heading;v.mesh.rotation.z=0;v.speed=0;
+  v.root.position.set(x,.035,z);v.heading=heading;v.root.rotation.y=heading;v.mesh.rotation.set(0,0,0);v.speed=0;v.fall=0;v.steering=0;updateVehicleLights(v,false,false);
 }
 
-const loader = new GLTFLoader();
+const loader = new GLTFLoader(), assets=new Map(), axleAxis=new T.Vector3(1,0,0);
+function loadAsset(url){
+  if(!assets.has(url))assets.set(url,loader.loadAsync(url));
+  return assets.get(url);
+}
 function mountAsset(v) {
-  const {url,yaw=0,scale=1,wheels=[],wheelDirection=1,wheelAxis,matte=false,palette={},wheelRadius,seat}=v.model;
-  loader.load(url, ({scene})=>{
+  const {url,yaw=0,scale=1,wheels=[],wheelDirection=1,wheelAxis,matte=false,paint=false,palette={},wheelRadius,seat}=v.model;
+  loadAsset(url).then(({scene:asset})=>{
+    const scene=asset.clone(true);
     scene.rotation.y=yaw;scene.scale.setScalar(scale);
+    const used=new Map();
     scene.traverse(obj=>{
       if(!obj.isMesh)return;
+      const tune=m=>{
+        const body=obj.name==='body'||obj.name==='spoiler';
+        const key=`${m.id}:${body}`;
+        if(used.has(key))return used.get(key);
+        const out=m.clone();
+        if(matte){out.metalness=0;out.roughness=.87;}
+        if(paint){out.metalness=body?.22:.06;out.roughness=body?.38:.74;out.envMapIntensity=body?.66:.34;}
+        if(Object.hasOwn(palette,out.name))out.color.setHex(palette[out.name]);
+        used.set(key,out);return out;
+      };
+      obj.material=Array.isArray(obj.material)?obj.material.map(tune):tune(obj.material);
       obj.castShadow=obj.receiveShadow=true;
-      for(const m of Array.isArray(obj.material)?obj.material:[obj.material]) {
-        if(matte){m.metalness=0;m.roughness=.87;}
-        if(Object.hasOwn(palette,m.name))m.color.setHex(palette[m.name]);
-      }
     });
     const wrapper=new T.Group();wrapper.add(scene);
     const ground=new T.Box3().setFromObject(wrapper).min.y;
     scene.position.y=-ground;
-    wrapper.rotation.z=v.mesh.rotation.z;
+    wrapper.rotation.copy(v.mesh.rotation);
+    if(v.lighting)wrapper.add(v.lighting.parts);
     // Riders and attachments live under mesh and transfer if the asset loads mid-ride.
     for(const child of v.attachments?.slice()??[])wrapper.add(child);
     v.mesh.traverse(obj=>{if(obj.isMesh)obj.geometry.dispose();});
     v.root.remove(v.mesh);v.mesh=wrapper;v.root.add(wrapper);
     v.wheels=wheels.map(name=>scene.getObjectByName(name)).filter(Boolean);
+    pivotWheels(v,w=>/front/i.test(w.name));
     v.wheelDirection=wheelDirection;
     if(wheelRadius)v.wheelRadius=wheelRadius;
     if(wheelAxis)v.wheelAxis=new T.Vector3(...wheelAxis);
     if(seat){v.seat=seat;for(const rider of v.attachments??[])rider.position.set(0,seat[0]-.69,seat[1]);}
-  }, undefined, () => console.info(`Using the low-poly fallback for ${v.name}.`));
+  }).catch(() => console.info(`Using the low-poly fallback for ${v.name}.`));
 }
 
-// Cosmetic traffic follows rounded road-center loops; it never participates in collisions.
-export function makeTraffic(scene){
-  const loops=[
-    {corners:[[-45,-45],[-3,-45],[-3,45],[-45,45]],color:0x799cb4,speed:7.6,offset:82},
-    {corners:[[3,3],[45,3],[45,45],[3,45]],color:0xdc836a,speed:7.4,offset:20},
-    {corners:[[51,-45],[93,-45],[93,-3],[51,-3]],color:0xe1d0a0,speed:9,offset:6},
-    {corners:[[99,3],[129,3],[129,45],[99,45]],color:0x74aeaa,speed:8,offset:31},
-  ];
-  const cars=loops.map(({corners,color,speed,offset})=>{
-    const {mesh,wheels}=car(color);scene.add(mesh);
-    const points=corners.map(([x,z])=>new T.Vector3(x,.04,z)),path=new T.CurvePath();
-    const stops=points.map((p,i)=>[p.clone().lerp(points[(i+points.length-1)%points.length],4/p.distanceTo(points[(i+points.length-1)%points.length])),p.clone().lerp(points[(i+1)%points.length],4/p.distanceTo(points[(i+1)%points.length]))]);
-    for(let i=0;i<points.length;i++){
-      const [enter,exit]=stops[i];path.add(new T.QuadraticBezierCurve3(enter,points[i],exit));
-      path.add(new T.LineCurve3(exit,stops[(i+1)%points.length][0]));
-    }
-    return {mesh,wheels,path,length:path.getLength(),speed,offset};
-  });
-  let elapsed=0;
-  return (dt,player)=>{
-    elapsed+=dt;
-    for(const car of cars){
-      const {mesh,wheels,path,length,speed,offset}=car,t=(elapsed*speed+offset)%length/length;
-      const p=path.getPoint(t), ahead=path.getPoint((t+.002)%1);
-      mesh.position.copy(p);mesh.rotation.y=Math.atan2(p.x-ahead.x,p.z-ahead.z);
-      // Give the player an uncluttered path when a cosmetic car overlaps their ride.
-      mesh.visible=p.distanceToSquared(player)>2.7**2;
-      for(const tire of wheels)tire.rotation.x-=speed*dt/.36;
-    }
-  };
+function pivotWheels(v,isFront){
+  v.frontPivots=[];
+  for(const wheel of v.wheels){
+    if(!isFront(wheel))continue;
+    const p=new T.Group();p.position.copy(wheel.position);wheel.parent.add(p);p.add(wheel);wheel.position.set(0,0,0);v.frontPivots.push(p);
+  }
+}
+export function animateWheels(v,dt,speed,turn){
+  v.steering=T.MathUtils.lerp(v.steering??0,turn*.46,1-Math.exp(-12*dt));
+  for(const p of v.frontPivots)p.rotation.y=v.steering;
+  for(const wheel of v.wheels)wheel.rotateOnAxis(v.wheelAxis??axleAxis,-speed*dt*(v.wheelDirection??1)/(v.wheelRadius??.36));
+}
+const lampOff=0xccd6d8, frontGlow=new T.Color(0xffe9b9), rearGlow=new T.Color(0xff2922);
+const lensGeo=new T.BoxGeometry(.32,.118,.025);
+function makeLights(v){
+  const [x,y,front,rear]=v.lamps,parts=new T.Group();v.mesh.add(parts);
+  const head=new T.MeshStandardMaterial({color:lampOff,roughness:.47});
+  const tail=new T.MeshStandardMaterial({color:0x9e2b27,roughness:.49});
+  for(const s of [-1,1]){
+    const a=new T.Mesh(lensGeo,head);a.position.set(s*x,y,front-.02);parts.add(a);
+    const b=new T.Mesh(lensGeo,tail);b.position.set(s*x,y-.01,rear+.025);parts.add(b);
+  }
+  return {parts,head,tail};
+}
+export function updateVehicleLights(v,lit,braking){
+  if(!v.lighting)return;
+  const {head,tail}=v.lighting;
+  head.emissive.copy(frontGlow);head.emissiveIntensity=lit?1.9:0;
+  tail.emissive.copy(rearGlow);tail.emissiveIntensity=braking?2.7:lit?.43:0;
 }

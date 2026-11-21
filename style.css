@@ -34,3 +34,6 @@ h1{font-size:clamp(80px,min(12.4vw,15.8vh),165px);margin-bottom:.135em}
 @media(pointer:coarse){.coin-hud{top:auto;bottom:198px}.coin-toast{bottom:258px}}
 /* Leave the road ahead and its markers unobstructed on wider screens. */
 @media(min-width:881px){.mission-hud{left:22px;top:126px;width:303px;transform:none}.mission-hud:not([hidden])~.visit{top:22px}}
+.map-level{position:absolute;bottom:11px;left:50%;transform:translateX(-50%);color:#b7f4f2;white-space:nowrap;font:500 8px Plex,monospace;letter-spacing:.07em}
+#headlight-toggle[aria-pressed=true]{color:#ffd889}#headlight-toggle[aria-pressed=false]{color:#8e9bab}
+@media(max-width:420px){.hud-buttons:has(#headlight-toggle:not([hidden])){gap:4px}.hud-buttons:has(#headlight-toggle:not([hidden])) button{width:32px}}

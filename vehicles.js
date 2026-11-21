@@ -100,10 +100,12 @@ export const vehicleSpecs = [
   {id:'car',name:'Car',color:0xf6b52f,spawn:[3.15,24,0],max:21,reverse:6,accel:7,brake:17,drag:1.9,steer:1.60,radius:.97,axle:1.00,range:3.45,camera:8.5,build:car,
     model:{url:'models/kenney-sedan.glb',scale:1.52,wheelRadius:.456,wheels:['wheel_frontLeft','wheel_frontRight','wheel_backLeft','wheel_backRight'],
       matte:true,palette:{paintRed:0xf6b52f,window:glass,plastic:black,carTire:rubber,_defaultMat:0xc6c8bd}}},
-  {id:"scooter",name:"Scooter",color:0x39bfb7,spawn:[-17,3.7,-Math.PI/2],max:13.7,reverse:3.7,accel:5.8,brake:12,drag:2.0,steer:2.46,radius:.38,axle:.55,range:2.4,camera:6.2,wheelRadius:.285,lean:.22,seat:[.91,.37],build:scooter},
+  {id:"scooter",name:"Scooter",color:0x39bfb7,spawn:[-17,3.7,-Math.PI/2],max:13.7,reverse:3.7,accel:5.8,brake:12,drag:2.0,steer:2.46,radius:.38,axle:.55,range:2.4,camera:6.2,wheelRadius:.285,lean:.22,seat:[.91,.37],build:scooter,
+    model:{url:'models/seafoam-scooter.glb',wheels:['FrontWheel','RearWheel'],seat:[.87,.36]}},
   {id:'motorcycle',name:'Motorcycle',color:0xed7150,spawn:[18,-3.65,Math.PI/2],max:26,reverse:4,accel:10,brake:16,drag:2.6,steer:1.92,radius:.47,axle:.66,range:2.65,camera:6.9,wheelRadius:.30,lean:.30,seat:[.89,.40],build:motorcycle,
     model:{url:'models/kenney-motorcycle.glb',yaw:Math.PI, wheels:['wheel-front','wheel-back'],wheelDirection:-1}},
-  {id:'bicycle',name:'Bicycle',color:0x81ac62,spawn:[74.2,17,Math.PI],max:8.5,reverse:2.9,accel:3.8,brake:10,drag:1.15,steer:3.10,radius:.34,axle:.58,range:2.35,camera:5.8,wheelRadius:.35,lean:.23,seat:[1.06,.31],build:bicycle},
+  {id:'bicycle',name:'Bicycle',color:0x81ac62,spawn:[74.2,17,Math.PI],max:8.5,reverse:2.9,accel:3.8,brake:10,drag:1.15,steer:3.10,radius:.34,axle:.58,range:2.35,camera:5.8,wheelRadius:.35,lean:.23,seat:[1.06,.31],build:bicycle,
+    model:{url:'models/quaternius-bicycle.glb',scale:1.12,yaw:Math.PI,wheelRadius:.338,wheelAxis:[0,1,0],wheels:['FrontWheel','BackWheel'],seat:[1.0,.35],palette:{Bike:0x81ac62,Handle:0xd8bd9a}}},
 ];
 
 export function spawnVehicle(spec) {
@@ -121,7 +123,7 @@ export function resetVehicle(v) {
 
 const loader = new GLTFLoader();
 function mountAsset(v) {
-  const {url,yaw=0,scale=1,wheels=[],wheelDirection=1,matte=false,palette={},wheelRadius}=v.model;
+  const {url,yaw=0,scale=1,wheels=[],wheelDirection=1,wheelAxis,matte=false,palette={},wheelRadius,seat}=v.model;
   loader.load(url, ({scene})=>{
     scene.rotation.y=yaw;scene.scale.setScalar(scale);
     scene.traverse(obj=>{
@@ -143,5 +145,39 @@ function mountAsset(v) {
     v.wheels=wheels.map(name=>scene.getObjectByName(name)).filter(Boolean);
     v.wheelDirection=wheelDirection;
     if(wheelRadius)v.wheelRadius=wheelRadius;
+    if(wheelAxis)v.wheelAxis=new T.Vector3(...wheelAxis);
+    if(seat){v.seat=seat;for(const rider of v.attachments??[])rider.position.set(0,seat[0]-.69,seat[1]);}
   }, undefined, () => console.info(`Using the low-poly fallback for ${v.name}.`));
+}
+
+// Cosmetic traffic follows rounded road-center loops; it never participates in collisions.
+export function makeTraffic(scene){
+  const loops=[
+    {corners:[[-45,-45],[-3,-45],[-3,45],[-45,45]],color:0x799cb4,speed:7.6,offset:82},
+    {corners:[[3,3],[45,3],[45,45],[3,45]],color:0xdc836a,speed:7.4,offset:20},
+    {corners:[[51,-45],[93,-45],[93,-3],[51,-3]],color:0xe1d0a0,speed:9,offset:6},
+    {corners:[[99,3],[129,3],[129,45],[99,45]],color:0x74aeaa,speed:8,offset:31},
+  ];
+  const cars=loops.map(({corners,color,speed,offset})=>{
+    const {mesh,wheels}=car(color);scene.add(mesh);
+    const points=corners.map(([x,z])=>new T.Vector3(x,.04,z)),path=new T.CurvePath();
+    const stops=points.map((p,i)=>[p.clone().lerp(points[(i+points.length-1)%points.length],4/p.distanceTo(points[(i+points.length-1)%points.length])),p.clone().lerp(points[(i+1)%points.length],4/p.distanceTo(points[(i+1)%points.length]))]);
+    for(let i=0;i<points.length;i++){
+      const [enter,exit]=stops[i];path.add(new T.QuadraticBezierCurve3(enter,points[i],exit));
+      path.add(new T.LineCurve3(exit,stops[(i+1)%points.length][0]));
+    }
+    return {mesh,wheels,path,length:path.getLength(),speed,offset};
+  });
+  let elapsed=0;
+  return (dt,player)=>{
+    elapsed+=dt;
+    for(const car of cars){
+      const {mesh,wheels,path,length,speed,offset}=car,t=(elapsed*speed+offset)%length/length;
+      const p=path.getPoint(t), ahead=path.getPoint((t+.002)%1);
+      mesh.position.copy(p);mesh.rotation.y=Math.atan2(p.x-ahead.x,p.z-ahead.z);
+      // Give the player an uncluttered path when a cosmetic car overlaps their ride.
+      mesh.visible=p.distanceToSquared(player)>2.7**2;
+      for(const tire of wheels)tire.rotation.x-=speed*dt/.36;
+    }
+  };
 }

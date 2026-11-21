@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 
 const url = process.env.GAME_URL || 'http://localhost:8000/';
+const fallbacks = process.env.FALLBACKS === '1';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH,
   args: ['--no-sandbox', '--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
@@ -13,6 +14,7 @@ try {
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('response', r => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
+  if (fallbacks) await page.route('**/*.glb', route => route.fulfill({contentType:'application/octet-stream',body:Buffer.from('incomplete model')}));
   await page.route('**/game.js', async route => {
     const response = await route.fetch();
     const body = await response.text();
@@ -50,7 +52,7 @@ try {
   await page.goto(url);
   assert.equal(await page.getByRole('heading', { level: 1 }).textContent(), 'OFF THEGRID.');
   await page.getByRole('button', { name: 'Play game' }).click();
-  await wait(() => window.testGame()?.state === 'play');
+  await wait(() => window.testGame?.()?.state === 'play');
   assert.equal(await page.locator('#ride').textContent(),'ON FOOT');
   assert.equal(await page.locator('#speed').textContent(),'0');
   await walkToPrompt('Car');
@@ -82,12 +84,20 @@ try {
     await walkToPrompt(name);
     await takeRide(id,name);
   }
-  await wait(() => window.testGame().vehicles.find(v=>v.id==='car').wheels.some(w=>w.name==='wheel_frontLeft'));
-  await wait(() => window.testGame().vehicles.find(v=>v.id==='motorcycle').wheels.some(w=>w.name==='wheel-front'));
+  if (fallbacks) {
+    assert.ok(await page.evaluate(() => window.testGame().player.figure.visible));
+    assert.deepEqual(await page.evaluate(() => window.testGame().vehicles.map(v => v.wheels.length)), [4,2,2,2]);
+  } else {
+    await wait(() => window.testGame().vehicles.find(v=>v.id==='car').wheels.some(w=>w.name==='wheel_frontLeft'));
+    await wait(() => window.testGame().vehicles.find(v=>v.id==='motorcycle').wheels.some(w=>w.name==='wheel-front'));
+    await wait(() => window.testGame().vehicles.find(v=>v.id==='scooter').wheels.some(w=>w.name==='RearWheel'));
+    await wait(() => window.testGame().vehicles.find(v=>v.id==='bicycle').wheels.some(w=>w.name==='BackWheel'));
+    await wait(() => !!window.testGame().player.anim?.actions.run);
+  }
   await page.getByRole('button',{name:'Pause',exact:true}).click();
   await page.getByRole('button',{name:'Back to title'}).click();
   await page.getByRole('button',{name:'Play game'}).click();
   await wait(() => window.testGame().state === 'play' && window.testGame().active === null);
   assert.deepEqual(errors, []);
-  console.log('PASS: both GLBs loaded, return to title and replay, no page/console errors or bad HTTP responses');
+  console.log(`PASS: ${fallbacks?'all model fallbacks worked':'all vehicle GLBs and the animated runner loaded'}, return to title and replay, no page/console errors or bad HTTP responses`);
 } finally { await browser.close(); }

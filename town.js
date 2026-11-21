@@ -1,8 +1,15 @@
 import * as T from 'three';
 import { mergeGeometries } from './vendor/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
 
 export const LIMIT = 78;
-export const ROADS = [-48, 0, 48];
+export const HORIZONTAL_ROADS = [-48,0,48];
+export const VERTICAL_ROADS = [-48,0,48,96,132];
+export const BOUNDS = {left:-78,right:167,top:-LIMIT,bottom:LIMIT};
+export const DISTRICT_LINE=79;
+export const BOARDWALK=148;
+export const SHORE=168;
+export const ROAD_END=144;
 export const asphalt = 0x394859;
 const materialCache = new Map();
 export function material(color) {
@@ -63,40 +70,45 @@ export function makeTown(scene) {
     const mesh=new T.Mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({map:texture}));
     mesh.position.set(x,y,z); parent.add(mesh);
   }
-  ground(group,0x4889ab,1500,1500,0,0,-.95);
-  box(group,0xd4ad85,160,2.6,160,0,-1.32,0);
-  ground(group,sand,158,158,0,0,.015);
-  for(let i=0;i<8;i++) {
-    const x=rand(145,310), z=rand(-240,230);
-    facet(group,0x6c9c9b,rand(10,30),x,-2,z,1,.31,1.4);
+  const width=ROAD_END+79, center=(ROAD_END-79)/2;
+  ground(group,0x417c94,1500,1500,0,0,-.95);
+  box(group,0xcda578,SHORE+79,2.6,160,(SHORE-79)/2,-1.32,0);
+  ground(group,sand,width,158,center,0,.015);
+  ground(group,0xf2d3a0,SHORE-ROAD_END,158,(SHORE+ROAD_END)/2,0,.018);
+  ground(group,0xe1b989,2.6,158,SHORE-1.25,0,.022);
+  // Independent random stream keeps the original town and parked ride surroundings stable.
+  const townSeed=seed;
+  for(let i=0;i<10;i++) {
+    const x=rand(203,385), z=rand(-290,290);
+    facet(group,pick([0x98978d,0x8e958b,0x7e9092]),rand(13,39),x,-4,z,1,.32,1.65);
   }
-  for(let i=0;i<112;i++) {
-    let x=rand(-135,180), z=rand(-136,136);
-    if (Math.abs(x)<84 && Math.abs(z)<84) continue;
-    const wave=ground(group,pick([0x619ab7,0x5593b1,0x76aac0]),rand(1,4),.08,x,z,-.926);
-    wave.rotation.y=.20;
+  for(let i=0;i<160;i++) {
+    const x=rand(-155,265), z=rand(-168,168);
+    if (x>-84&&x<173&&Math.abs(z)<83) continue;
+    const wave=ground(group,pick([0x6191a4,0x53869d,0x79a5b2]),rand(1,4),.08,x,z,-.926);
+    wave.rotation.y=.2;
   }
-  for(const r of ROADS) {
-    ground(group,asphalt,12,155,r,0,.028); ground(group,asphalt,155,12,0,r,.027);
-    for(let j=-72;j<=72;j+=4) {
-      if(ROADS.some(v=>Math.abs(v-j)<10))continue;
-      ground(group,paint,.14,1.9,r,j,.040); ground(group,paint,1.9,.14,j,r,.040);
-    }
-    for(const s of [-1,1]) {
-      for (const r2 of ROADS) for(let p=-4;p<=4;p+=1.13) {
-        ground(group,0xf5e3c9,.53,1.65,r+p,r2+s*7.3,.042);
-        ground(group,0xf5e3c9,1.65,.53,r2+s*7.3,r+p,.042);
-      }
+  seed=townSeed;
+  for(let i=0;i<8;i++){rand(145,310);rand(-240,230);rand(10,30);}
+  for(let i=0;i<112;i++){const x=rand(-135,180),z=rand(-136,136);if(Math.abs(x)<84&&Math.abs(z)<84)continue;random();random();}
+  for(const x of VERTICAL_ROADS) {
+    ground(group,asphalt,12,155,x,0,.028);
+    for(let z=-72;z<=72;z+=4)if(!HORIZONTAL_ROADS.some(v=>Math.abs(v-z)<10))ground(group,paint,.14,1.9,x,z,.040);
+  }
+  for(const z of HORIZONTAL_ROADS){
+    ground(group,asphalt,width,12,center,z,.027);
+    for(let x=-72;x<=140;x+=4)if(!VERTICAL_ROADS.some(v=>Math.abs(v-x)<10))ground(group,paint,1.9,.14,x,z,.040);
+    for(const x of VERTICAL_ROADS)for(const s of [-1,1])for(let p=-4;p<=4;p+=1.13){
+      ground(group,0xf5e3c9,.53,1.65,x+p,z+s*7.3,.042);
+      ground(group,0xf5e3c9,1.65,.53,x+s*7.3,z+p,.042);
     }
   }
   for(const z of [-77,77]) {
-    ground(group,pave,156,4.5,0,z,.095);
-    box(group,0xdebf96,158,.55,.41,0,.26,z+Math.sign(z)*2.35);
+    ground(group,pave,width,4.5,center,z,.095);
+    box(group,0xdebf96,width,.55,.41,center,.26,z+Math.sign(z)*2.35);
   }
-  for(const x of [-77,77]) {
-    ground(group,pave,4.5,156,x,0,.095);
-    box(group,0xdebf96,.41,.55,158,x+Math.sign(x)*2.35,.26,0);
-  }
+  ground(group,pave,4.5,156,-77,0,.095);
+  box(group,0xdebf96,.41,.55,158,-79.35,.26,0);
   function tree(x,z,palm=false,scale=1) {
     if(palm) {
       tube(group,0xa27b53,[x,0,z],[x+.35*scale,4.8*scale,z],.24*scale,.13*scale,7);
@@ -201,13 +213,138 @@ export function makeTown(scene) {
     }
     lamp(left+1.25,top+1.18,Math.PI); lamp(right-1.25,bottom-1.18);
   }
+  // Lantern Bay: a second neighborhood connected by all three east–west streets.
+  const eastBlocks=[[82,90],[102,126],[138,143]];
+  for(let i=0;i<eastBlocks.length;i++)for(let j=0;j<spans.length;j++){
+    const [left,right]=eastBlocks[i],[top,bottom]=spans[j], x=(left+right)/2,z=(top+bottom)/2;
+    ground(group,pave,right-left,bottom-top,x,z,.094);
+    lamp(left+1,top+1,Math.PI);lamp(right-1,bottom-1);
+    if(i===2){
+      for(const t of [top+4,bottom-4]){tree(x,t,true,.92);bench(x+.9,t+2,-Math.PI/2);}
+    }else if(i===1&&j===2){
+      ground(group,0xa2b17c,right-left-3,bottom-top-3,x,z,.101);
+      ground(group,0xe9cfaa,2.2,bottom-top,x,z,.109);
+      ground(group,0xe9cfaa,right-left,2.2,x,z,.109);
+      for(const d of [-1,1])for(const a of [-1,1]){tree(x+d*7,z+a*10,true,1.05);bench(x+d*6,z+a*6,Math.PI/2);}
+      const market=new T.Group();market.position.set(x,0,z);scene.add(market);
+      sign(market,'LANTERN BAY',0,2.6,0,4.4,.9,'#244b58','#ffe9b4');
+      for(const d of [-1,1])tube(group,0x744d3a,[x+d*1.9,0,z],[x+d*1.9,3.1,z],.09);
+    }else{
+      const double=bottom-top>25;
+      for(const zz of double?[top+8.8,bottom-8.8]:[z]){
+        const name=j===0?'MARINA CORNER':j===3?'LANTERN MARKET':'BAY GUESTHOUSE';
+        const shop=i===1;
+        const model=house(x,zz,i===0?5.1:12.1,shop?9.4:8.5,shop?6.25:4.5,zz<z?Math.PI:0,schemes[(j*2+i+3)%schemes.length],shop);
+        if(model){const p=new T.Group();p.position.copy(model.p.position);p.rotation.copy(model.p.rotation);scene.add(p);sign(p,name,0,3.35,model.z,4.7,.85,'#284b56','#ffe9b4');}
+      }
+      if(i===1)for(const dz of [-5.3,5.3])tree(left+2,z+dz,true,rand(.77,1.18));
+    }
+  }
   for(const z of [-68,-34,-17,16,34,67]) {tree(76.6,z,true,rand(.85,1.15));lamp(76.9,z+4,Math.PI);if(Math.abs(z)<45)bench(76.3,z+1.8,-Math.PI/2);}
-  for(const x of [-65,-26,20,65]) tree(x,76.7,true,.88);
+  for(const x of [-65,-26,20,65,104,140])tree(x,76.7,true,.88);
+  // A flat, curb-free boardwalk and beach work with the existing walking and driving physics.
+  ground(group,0xa06c51,7.2,157,BOARDWALK,0,.081);
+  for(let i=-102;i<=102;i++)ground(group,pick([0xb78662,0xc99b72,0xbe906b,0xd0a078]),7.1,.746,BOARDWALK,i*.765,.086);
+  for(const x of [BOARDWALK-3.4,BOARDWALK+3.4])ground(group,0x9a694f,.15,156,x,0,.093);
+  for(const z of [-69,-56,-37,-20,23,38,56,69]){
+    lamp(144.75,z,0);
+    if(Math.abs(z)>22)bench(151,z,Math.PI/2);
+  }
+  const kiosk=house(143.6,16,4.8,5,3.25,Math.PI/2,[0x82b5a6,0x446e79,0xf3d384],true);
+  const kioskSign=new T.Group();kioskSign.position.copy(kiosk.p.position);kioskSign.rotation.copy(kiosk.p.rotation);scene.add(kioskSign);
+  sign(kioskSign,'BOARDWALK',0,3.10,kiosk.z,3.2,.55,'#244b58','#fff2bb');
+  for(const [x,z] of [[153,-69],[154,-36],[155,-12],[154,12],[155,37],[154,68]])tree(x,z,true,1.03);
+  for(const [x,z,rotation,col] of [[159,-63,.2,0xdc775f],[158,-31,.4,0x529da4],[160,-8,1,0xe4a653],[158,22,.1,0xd5786f],[160,49,.25,0x65a9aa],[161,67,.5,0xe6a953]]){
+    const p=new T.Group();p.position.set(x,0,z);p.rotation.y=rotation;group.add(p);
+    tube(p,0xd5ba94,[0,0,0],[0,2.42,0],.058);
+    for(let i=0;i<8;i++){
+      const a=i*Math.PI/4,b=a+Math.PI/4;
+      const geo=new T.BufferGeometry();geo.setAttribute('position',new T.Float32BufferAttribute([0,2.6,0,Math.sin(a)*1.62,1.96,Math.cos(a)*1.62,Math.sin(b)*1.62,1.96,Math.cos(b)*1.62],3));
+      geo.computeVertexNormals();geo.setAttribute('uv',new T.Float32BufferAttribute([.5,1,0,0,1,0],2));
+      // Face each umbrella panel upward with its normal, so the deck receives its shadow.
+      const m=new T.Mesh(geo,material(i%2?0xf9e2ba:col));m.material.side=T.DoubleSide;m.castShadow=true;p.add(m);
+    }
+    for(const z of [-.72,.72]){
+      const lounge=box(p,0xf9e0b7,1.43,.08,.49,0,.28,z);lounge.rotation.z=.09;
+      box(p,col,1.38,.055,.37,0,.335,z).rotation.z=.09;
+      for(const x of [-.56,.56])box(p,0xa27a60,.07,.25,.5,x,.14,z);
+    }
+  }
   for (const z of [-52,-18,19,57]) {
-    const boat=new T.Group();boat.position.set(88+rand(0,12),-.85,z);boat.rotation.y=rand(-.7,.7);group.add(boat);
+    const boat=new T.Group();boat.position.set(179+rand(0,20),-.66,z);boat.rotation.y=rand(-.7,.7);group.add(boat);
     const hull=facet(boat,pick([0xe28d5c,0xf5e4bf,0x79b1b3]),1,0,.1,0,.83,.47,1.95);hull.rotation.y=.15;
     box(boat,0xf4e7cb,.93,.07,1.55,0,.34,.05);box(boat,0x876551,.93,.13,.30,0,.40,-.22);
   }
+  const propSites=[[110,14],[118,14],[110,34],[118,34]];
+  const fallbacks=propSites.map(([x,z])=>{
+    const root=new T.Group();root.position.set(x,0,z);scene.add(root);addCollider(x,z,.44,.44,2.5);
+    tube(root,0x956a4d,[0,0,0],[0,2.4,0],.22,.12);
+    facet(root,0x789e54,1.64,0,2.9,0,1,1.18,1);
+    return root;
+  });
+  new GLTFLoader().load('models/kenney-tree.glb',({scene:tree})=>{
+    const size=new T.Box3().setFromObject(tree).getSize(new T.Vector3());
+    if(size.y<=0)return;
+    tree.scale.setScalar(4.8/size.y);
+    tree.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+    fallbacks.forEach((root,i)=>{
+      const model=tree.clone(true);model.rotation.y=i*1.4;
+      root.traverse(o=>{if(o.isMesh)o.geometry.dispose();});root.clear();root.add(model);
+    });
+  },undefined,()=>console.info('Using the procedural park trees.'));
   batch(group,scene);
-  return {colliders,buildings,cameraBlockers};
+  const atmosphere = makeAtmosphere(scene);
+  return {colliders,buildings,cameraBlockers,update:atmosphere};
+}
+
+export const HAZE = 0xf2af93;
+function makeAtmosphere(scene){
+  const sky=new T.Mesh(new T.SphereGeometry(410,32,20),new T.ShaderMaterial({
+    side:T.BackSide,depthWrite:false,toneMapped:false,fog:false,
+    vertexShader:`varying vec3 vDir; void main(){vDir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+    fragmentShader:`varying vec3 vDir;
+      void main(){
+        vec3 p=normalize(vDir), light=normalize(vec3(.46,.106,-.88));
+        float up=max(0.,p.y), dotSun=max(0.,dot(p,light));
+        vec3 c=mix(vec3(1.,.68,.54),vec3(.26,.45,.65),smoothstep(0.,.64,up));
+        c=mix(c,vec3(1.,.86,.64),pow(dotSun,12.)*.62*exp(-up*5.));
+        c=mix(c,vec3(1.,.89,.68),smoothstep(.99945,.9997,dotSun));
+        gl_FragColor=vec4(c,1.);
+      }`
+  }));
+  sky.frustumCulled=false;sky.renderOrder=-20;scene.add(sky);
+  const clouds=new T.Group();
+  const cloudGeo=new T.IcosahedronGeometry(1,1);
+  const cloudMats=[0xffd0ad,0xf2baa8,0xf7bb9b,0xe2b9b3].map(color=>new T.MeshBasicMaterial({color,toneMapped:false,fog:false}));
+  const positions=[[-148,32,-155,1],[-78,24,-183,.85],[57,43,-138,1.22],[161,38,-168,1.3],[264,34,-139,1.1],[253,51,-21,1.32],[238,37,108,.86],[203,44,191,1.25],[58,45,177,1.28],[-44,37,187,1],[-158,40,107,1.3]];
+  positions.forEach(([x,y,z,k],i)=>{
+    const group=new T.Group();group.position.set(x,y,z);
+    for(let j=0;j<5;j++){
+      const m=new T.Mesh(cloudGeo,cloudMats[(i+j)%cloudMats.length]);
+      m.position.set(k*(j-2)*8,k*Math.sin(j*1.1)*1.7,k*Math.sin(j)*3);
+      m.scale.set((12+Math.cos(j)*3)*k,(1.65+Math.sin(j*1.7)*.59)*k,(4.8+Math.cos(j))*k);group.add(m);
+    }
+    clouds.add(group);
+  });
+  scene.add(clouds);
+  const waveMat=new T.ShaderMaterial({
+    uniforms:{time:{value:0}},transparent:true,depthWrite:false,toneMapped:false,
+    vertexShader:`varying vec3 world;void main(){vec4 p=modelMatrix*vec4(position,1.);world=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
+    fragmentShader:`uniform float time;varying vec3 world;
+      void main(){
+        float crest=167.2+.77*sin(time*1.55+world.z*.17)+.28*sin(world.z*.6-time);
+        float along=world.x-crest;
+        float foam=exp(-abs(along)*5.)*.79;
+        foam+=exp(-abs(along-2.1-.4*sin(time+world.z*.26))*4.)*.36;
+        float water=smoothstep(-.32,.34,along)*(1.-smoothstep(8.,15.,along));
+        vec3 col=mix(vec3(.33,.64,.67),vec3(1.,.93,.78),clamp(foam*1.26,0.,1.));
+        float edge=1.-smoothstep(74.,79.,abs(world.z));
+        float fade=1.-smoothstep(100.,245.,distance(cameraPosition,world));
+        gl_FragColor=vec4(col,clamp(max(foam,water*.56),0.,1.)*edge*fade);
+      }`
+  });
+  const waves=new T.Mesh(new T.PlaneGeometry(21,158),waveMat);
+  waves.rotation.x=-Math.PI/2;waves.position.set(174,.025,0);scene.add(waves);
+  let clock=0;
+  return (dt,camera)=>{clock+=dt;sky.position.copy(camera.position);waveMat.uniforms.time.value=clock;clouds.position.x=6*Math.sin(clock*.013);};
 }

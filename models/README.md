@@ -1,6 +1,12 @@
 # Model credits
 
-- `kenney-motorcycle.glb` and `Textures/colormap.png`: Kenney, [Starter Kit Racing](https://github.com/KenneyNL/Starter-Kit-Racing). The upstream README identifies bundled 3D models and textures as [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). `kenney-motorcycle.glb` is a rename of the original `models/vehicle-motorcycle.glb`.
-- Keep the `Textures/` path and letter case as shown: the GLB references `Textures/colormap.png`.
-- `kenney-sedan.glb`: Kenney, [Car Kit 1.2](https://kenney.nl/assets/car-kit), CC0. The original is [`sedanSports.glb`](https://github.com/Dechode/Godot-Advanced-Vehicle/tree/main/models/kenney_carkit1); the game sets a yellow paint material at runtime. See `Kenney-Car-Kit-LICENSE.txt`.
-- The scooter and bicycle use authored primitives in `vehicles.js`; both downloaded models have primitive fallbacks.
+| File | Source and license |
+| --- | --- |
+| `kenney-sedan.glb` | Kenney [Car Kit 1.2](https://kenney.nl/assets/car-kit), CC0. Copy of [`sedanSports.glb`](https://github.com/Dechode/Godot-Advanced-Vehicle/tree/main/models/kenney_carkit1); the game applies yellow paint. See `Kenney-Car-Kit-LICENSE.txt`. |
+| `kenney-motorcycle.glb`, `Textures/colormap.png` | Kenney [Starter Kit Racing](https://github.com/KenneyNL/Starter-Kit-Racing), CC0. The GLB expects the texture path and case shown here. |
+| `kenney-tree.glb` | Kenney [Car Kit 3.1](https://kenney.nl/assets/car-kit), CC0. From [`Models/City/tree-large.glb`](https://github.com/Arslan12216775/kenney_car-kit/blob/master/Models/City/tree-large.glb). See `Kenney-Car-Kit-3.1-LICENSE.txt`. |
+| `quaternius-bicycle.glb` | Quaternius [LowPoly Public Transport](https://opengameart.org/content/lowpoly-public-transport), CC0. Based on the [html-anime GLB conversion](https://github.com/nrknithin/html-anime/pull/149), unpacked to standard glTF attributes so no runtime decoder is needed. |
+| `quaternius-runner.glb` | Quaternius [Ultimate Animated Character Pack](https://quaternius.com/packs/ultimatedanimatedcharacter.html) (also on [Poly Pizza](https://poly.pizza/m/kZ3DmIoGip)), CC0. `Casual_Male.gltf` from this [mirror](https://github.com/AbrahamBrookes/hey-you-steal-that-bling/tree/main/stolen_assets/Quaternius-characters), packed as a GLB with the idle, walk, run, jump, and seated clips. |
+| `seafoam-scooter.glb` | Original low-poly scooter for this project, dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). Its editable authoring script is `tools/export-scooter.mjs`; no build is required to use the GLB. |
+
+All four vehicle models and the player have procedural fallbacks. Other scenery is procedural. The title illustration is separate from the playable 3D scene.

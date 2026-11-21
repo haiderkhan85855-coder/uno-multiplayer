@@ -1,6 +1,6 @@
 # Off the Grid — Sunset District
 
-A free-roam, third-person Three.js game. Walk the coastal town or pick up a car, scooter, motorcycle, or bicycle. There is no login, download at runtime, or build step. Three.js, models, textures, and fonts are served with the game.
+A third-person Three.js game with two coastal neighborhoods, a driveable beach, and four rides: car, scooter, motorcycle, and bicycle. The game has no login, build step, or external runtime requests.
 
 ## Play
 
@@ -10,36 +10,49 @@ Use the live preview, or serve this folder with any static HTTP server:
 python3 -m http.server 8000
 ```
 
-Open **http://localhost:8000** in a modern browser with WebGL 2 and choose **Play game**. Serve the folder over HTTP rather than opening `index.html` as a `file://` URL; browsers restrict local ES module and model loading.
+Open **http://localhost:8000** in a browser with WebGL 2. Serve the folder over HTTP rather than opening `index.html` as a `file://` URL, which browsers restrict for modules and model loading.
 
 | Control | Action |
 | --- | --- |
 | WASD | Walk relative to the camera. On a vehicle, W accelerates, S brakes/reverses, and A/D steer. |
 | Shift / Space | Run / jump on foot |
-| Drag | Orbit the camera; it settles back behind a moving vehicle after a short delay |
+| Drag | Orbit the camera; it settles behind your vehicle after a short delay |
 | E | Enter a nearby vehicle or dismount to a clear spot |
-| Esc / R | Pause / reset the player and vehicles |
+| Esc / R | Pause / reset the player, parked rides, and current attempt without losing records |
+| Speaker button | Mute or unmute the synthesized audio |
 
-Colored dots on the minimap mark parked vehicles. Touch devices get on-screen movement, jump, run, and interaction buttons.
+Touch devices have on-screen movement, jump, run, and interaction buttons. On the minimap, outlined colored dots are parked rides, small gold dots are coins, green is a delivery target, and blue shows the race gates. NPC traffic is decorative and never collides with the player.
 
-## Add a vehicle
+## Activities
 
-Add an entry to `vehicleSpecs` in `vehicles.js` with a unique `id`, display `name`, marker `color`, and `spawn: [x, z, heading]`. Heading `0` faces negative Z; angles use radians and distances/speeds use meters and seconds. Start from an existing entry and adjust `max`, `reverse`, `accel`, `brake`, `drag`, and `steer`. `radius` and `axle` size the collision footprint; `range` sets the boarding distance and `camera` sets follow distance. An optional `seat: [height, z]` shows a rider.
+Choose an activity on the title screen, then press the yellow start button. To change activities, pause and select **Back to title**.
 
-Implement `build(color)` to return a `{ mesh, wheels }` fallback. For an imported asset, put the GLB and any textures in `models/`, then set `model: { url, yaw, scale, wheels, wheelDirection }`. Only `url` is required. Name the wheel nodes in `wheels` if their local X axes should roll. Keep the rear and front clear of buildings at the spawn; new entries are picked up automatically by the HUD, minimap, and interaction system.
+- **Free Roam:** Explore Sunset District, Lantern Bay, the boardwalk, and the beach. Run or drive through any of the 20 coins to collect it. Coins can also be collected in Delivery and Race.
+- **Delivery:** Walk or drive into the glowing green pickup ring to collect the parcel. That starts the countdown and reveals the drop-off ring. Reach it before time runs out. Three jobs rotate as you complete them; use **Next job** or **Retry** to start another attempt.
+- **Race:** Cross the blue start gate to begin Harbor Sprint, then pass through the five remaining gates in order, on foot or in a vehicle. The HUD shows your last and best times. Use **Race again** to retry.
 
-`game.js` owns input, movement, camera, and HUD. `town.js` builds and batches static scenery and exposes collision bounds. `vehicles.js` defines rides and loads their assets.
+Delivery totals, coin IDs, and race times are saved locally for this browser and origin. There is no account or cross-device sync. Pausing stops mission clocks.
 
-## Assets and verification
+## Code and assets
 
-The bundled car is from [Kenney Car Kit](https://kenney.nl/assets/car-kit) and the motorcycle is from [Kenney Starter Kit Racing](https://github.com/KenneyNL/Starter-Kit-Racing) (both CC0). The scooter, bicycle, player, and town are built from low-poly geometry. The car and motorcycle have procedural fallbacks. The title illustration is separate from the in-game scene. See `models/README.md` and the licenses in `vendor/` and `assets/fonts/`.
+- `game.js`: existing input, player and vehicle movement, camera, and HUD/minimap integration.
+- `missions.js`: jobs, checkpoint course, coins, title menu, and local progress. Spot and gate coordinates are defined at the top.
+- `town.js`: roads, collision bounds, buildings, beach, and animated sunset scenery.
+- `vehicles.js`: handling, GLB loading with procedural fallbacks, and NPC traffic. `player-model.js` handles rigged movement; `sound.js` synthesizes all audio with Web Audio.
 
-The optional smoke test drives the actual game in Chromium: it walks from the default spawn to the car, then separately walks up to, enters, drives, steers, and exits each ride. It also checks running, jumping, camera orbit, reset, pause/resume, title replay, and GLB loading for the car and motorcycle.
+To add a vehicle, copy an entry in `vehicleSpecs` and give it a unique `id`, display `name`, marker `color`, and `spawn: [x, z, heading]` (heading `0` faces negative Z). Adjust `max`, `reverse`, `accel`, `brake`, `drag`, and `steer`. `radius` and `axle` set the collision footprint; `range` sets interaction distance and `camera` sets follow distance. A `seat: [height, z]` shows a rider. Geometry and speeds use meters and seconds.
+
+Implement `build(color)` to return a `{ mesh, wheels }` fallback. Add an optional `model: { url, yaw, scale, wheels, wheelAxis }` for a GLB in `models/`, with any textures alongside it. Only `url` is required; wheel names and the local wheel axis (X by default) enable wheel rotation. See [model credits](models/README.md) for the bundled assets and their licenses.
+
+## Verification
+
+With the static server running, install the optional test dependency and run the Chromium tests. None of this is needed to play:
 
 ```sh
-# While the server above is running (not needed to play)
 npm install --no-save --no-package-lock playwright-core
 CHROMIUM_PATH=/path/to/chromium node tests/smoke.mjs
+CHROMIUM_PATH=/path/to/chromium node tests/missions.mjs
+FALLBACKS=1 CHROMIUM_PATH=/path/to/chromium node tests/smoke.mjs
 ```
 
-Physics are arcade-style. Real-device touch controls and cross-browser performance have not been verified.
+The smoke test covers all four rides, walking, sprinting, jumping, orbiting, pause/reset, and model loading. `FALLBACKS=1` supplies invalid GLBs to check that the game still plays with the procedural models. The mission test makes a full delivery, runs all six gates, collects coins, checks persistence, and drives onto the beach. Real-device touch, cross-browser performance, and subjective audio balance have not been verified.

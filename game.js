@@ -1,6 +1,9 @@
 import * as T from 'three';
-import { box, material, makeTown, ROADS, LIMIT, asphalt } from './town.js';
-import { vehicleSpecs, spawnVehicle, resetVehicle } from './vehicles.js';
+import { box, material, makeTown, HORIZONTAL_ROADS, VERTICAL_ROADS, BOUNDS, DISTRICT_LINE, ROAD_END, BOARDWALK, SHORE, HAZE, asphalt } from './town.js';
+import { vehicleSpecs, spawnVehicle, resetVehicle, makeTraffic } from './vehicles.js';
+import { createMissions, wireMissionMenu, chosenMode } from './missions.js';
+import { createSound } from './sound.js';
+import { loadRunner, animateRunner } from './player-model.js';
 
 const $ = id => document.getElementById(id);
 const ui = Object.fromEntries(['viewport','landing','hud','ride','speed','minimap','prompt','prompt-label','visit','visit-label','pause','reset','resume','back','pause-screen','touch'].map(id=>[id,$(id)]));
@@ -11,6 +14,7 @@ const SMOOTH = (rate,dt) => 1 - Math.exp(-rate*dt);
 const INITIAL = [3.15,.04,34];
 const inputCodes = new Set(['KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','Space','KeyE','KeyR','Escape']);
 let game;
+wireMissionMenu();
 
 function makePlayer(scene) {
   const root = new T.Group(), figure = new T.Group(); root.add(figure); scene.add(root);
@@ -47,17 +51,18 @@ function vehicleBadge(vehicle) {
 function createGame() {
   const renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
-  renderer.toneMapping=T.ACESFilmicToneMapping; renderer.toneMappingExposure=1.27;
-  const scene=new T.Scene();scene.background=new T.Color(0xa6cbdd);scene.fog=new T.FogExp2(0xa6cbdd,.0074);
-  scene.add(new T.HemisphereLight(0xfff1db,0x98aec4,2.02));
-  const sun=new T.DirectionalLight(0xffdbad,2.65);scene.add(sun,sun.target);sun.castShadow=true;
-  sun.shadow.mapSize.set(1536,1536);Object.assign(sun.shadow.camera,{left:-35,right:35,top:35,bottom:-35,near:.1,far:115});
+  renderer.toneMapping=T.ACESFilmicToneMapping; renderer.toneMappingExposure=1.21;
+  const scene=new T.Scene();scene.background=new T.Color(HAZE);scene.fog=new T.FogExp2(HAZE,.0044);
+  scene.add(new T.HemisphereLight(0xffe5cc,0xa89bb8,1.85));
+  const sun=new T.DirectionalLight(0xffc486,2.72);scene.add(sun,sun.target);sun.castShadow=true;
+  sun.shadow.mapSize.set(1536,1536);Object.assign(sun.shadow.camera,{left:-31,right:31,top:31,bottom:-31,near:.1,far:144});
   sun.shadow.camera.updateProjectionMatrix();sun.shadow.bias=-.00024;sun.shadow.normalBias=.035;
   const town=makeTown(scene), camera=new T.PerspectiveCamera(57,1,.11,560);
   const player=makePlayer(scene), rider=makePlayer(scene);
-  rider.root.visible=false;
+  rider.root.visible=false;loadRunner(player,rider);
+  const sound=createSound(),missions=createMissions(scene,sound),traffic=makeTraffic(scene);
   const vehicles=vehicleSpecs.map(spec=>{const v=spawnVehicle(spec);scene.add(v.root);v.badge=vehicleBadge(v);return v;});
-  const g={renderer,scene,camera,town,player,rider,vehicles,active:null,sun,keys:new Set(),touchKeys:new Map(),seen:new Set(),
+  const g={renderer,scene,camera,town,player,rider,vehicles,active:null,sun,sound,missions,traffic,keys:new Set(),touchKeys:new Map(),seen:new Set(),
     state:'title',camYaw:0,camPitch:.43,cameraFocus:new T.Vector3(),drag:null,lastDrag:-Infinity,last:0,noticeUntil:0, map:document.createElement('canvas')};
   renderer.domElement.tabIndex=0;renderer.domElement.setAttribute('aria-label','Town view. Drag to orbit the camera.');
   ui.viewport.replaceChildren(renderer.domElement);
@@ -71,16 +76,19 @@ function setState(g,state) {
   g.keys.clear();g.touchKeys.clear();g.drag=null;g.state=state;g.last=0;
   ui.landing.hidden=state!=='title';ui.viewport.hidden=state==='title';ui.hud.hidden=state==='title';
   ui['pause-screen'].hidden=state!=='paused';ui.hud.inert=state==='paused';
+  if(state==='play')g.sound.unlock();
+  g.sound.setPlaying(state==='play');
   if(state==='play')g.renderer.domElement.focus({preventScroll:true});
   if(state==='paused')ui.resume.focus();
   if(state==='title')$('play').focus();
 }
-function reset(g) {
+function reset(g,mode=g.missions.mode) {
+  g.missions.reset(mode);
   dismountRider(g);g.active=null;g.seen.clear();g.noticeUntil=0;g.vehicles.forEach(resetVehicle);
   const p=g.player;p.root.position.set(...INITIAL);p.root.visible=true;p.heading=0;p.root.rotation.y=0;p.vertical=0;p.grounded=true;p.phase=0;
   p.figure.position.y=0;for(const j of [...p.arms,...p.legs])j.rotation.x=0;
   g.camYaw=0;g.camPitch=.43;g.lastDrag=-Infinity;
-  updateCamera(g,0,true);updateHud(g,0);
+  updateCamera(g,0,true);g.town.update(0,g.camera);updateHud(g,0);
 }
 function setupInput(g) {
   function press(code) {
@@ -124,6 +132,12 @@ function setupInput(g) {
     for(const name of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(name,stop);
   }
   ui.pause.onclick=()=>setState(g,'paused');ui.resume.onclick=()=>setState(g,'play');
+  g.missions.restart.onclick=()=>{reset(g);view.focus();};
+  $('sound-toggle').onclick=()=>{
+    const muted=g.sound.toggle(g.state==='play'), button=$('sound-toggle');
+    button.setAttribute('aria-pressed',String(muted));button.setAttribute('aria-label',muted?'Unmute sound':'Mute sound');button.title=muted?'Unmute sound':'Mute sound';
+    button.querySelector('use').setAttribute('href',muted?'#i-mute':'#i-sound');view.focus();
+  };
   ui.back.onclick=()=>setState(g,'title');ui.reset.onclick=()=>{reset(g);view.focus();};
 }
 function nearest(g) {
@@ -167,7 +181,7 @@ function dismountRider(g) {
   g.rider.root.removeFromParent();g.rider.root.visible=false;
 }
 function blocked(g,x,z,r,y,skip) {
-  if(Math.abs(x)+r>LIMIT||Math.abs(z)+r>LIMIT)return true;
+  if(x-r<BOUNDS.left||x+r>BOUNDS.right||z-r<BOUNDS.top||z+r>BOUNDS.bottom)return true;
   for(const b of g.town.colliders) {
     if(y>=b.h)continue;
     const dx=Math.max(Math.abs(x-b.x)-b.w/2,0), dz=Math.max(Math.abs(z-b.z)-b.d/2,0);
@@ -196,6 +210,7 @@ function stepPlayer(g,dt,key) {
     if(!blocked(g,pos.x,pos.z+z*dt,.33,pos.y))pos.z+=z*dt;
   }
   const speed=Math.hypot(pos.x-beforeX,pos.z-beforeZ)/dt || 0;
+  animateRunner(p,dt,speed);
   const scale=speed>.1?(running?.89:.64):0;
   p.phase+=speed*2.1*dt;
   const swing=p.grounded?Math.sin(p.phase)*scale:.46;
@@ -207,6 +222,7 @@ function stepPlayer(g,dt,key) {
   p.figure.position.y=p.grounded?Math.abs(swing)*.055:0;
   return speed;
 }
+const X_AXIS=new T.Vector3(1,0,0);
 function stepVehicle(g,dt,key) {
   const v=g.active,pos=v.root.position;
   const throttle=+key('KeyW')-key('KeyS'), turn=+key('KeyA')-key('KeyD');
@@ -222,7 +238,7 @@ function stepVehicle(g,dt,key) {
   if(can(nx,nz,yaw)) {pos.x=nx;pos.z=nz;v.heading=yaw;}
   else {if(can(pos.x,pos.z,yaw))v.heading=yaw;v.speed=0;}
   v.root.rotation.y=v.heading;
-  for(const wheel of v.wheels)wheel.rotation.x-=v.speed*dt*(v.wheelDirection??1)/(v.wheelRadius??.36);
+  for(const wheel of v.wheels)wheel.rotateOnAxis(v.wheelAxis??X_AXIS,-v.speed*dt*(v.wheelDirection??1)/(v.wheelRadius??.36));
   v.mesh.rotation.z=T.MathUtils.lerp(v.mesh.rotation.z,turn*(v.lean??.027)*Math.min(Math.abs(v.speed)/4,1),SMOOTH(7,dt));
   if(v.id==='bicycle') {
     g.rider.phase+=v.speed*dt*3.6;
@@ -231,6 +247,7 @@ function stepVehicle(g,dt,key) {
   }
   return Math.abs(v.speed);
 }
+const SUN_OFFSET=new T.Vector3(38,21,-59);
 const focus = new T.Vector3(), desired = new T.Vector3(), offset = new T.Vector3(), ray=new T.Ray(), hit=new T.Vector3(), bounds=new T.Box3();
 function updateCamera(g,dt,snap=false) {
   const a=g.active, target=a?.root ?? g.player.root;
@@ -248,16 +265,22 @@ function updateCamera(g,dt,snap=false) {
   }
   desired.copy(g.cameraFocus).addScaledVector(ray.direction,len);g.camera.position.copy(desired);
   g.camera.lookAt(g.cameraFocus);
-  g.sun.target.position.copy(target.position);g.sun.position.copy(target.position).add(new T.Vector3(-26,44,24));
+  g.sun.target.position.copy(target.position);g.sun.position.copy(target.position).add(SUN_OFFSET);
 }
+const mapScale=140/(BOUNDS.right-BOUNDS.left);
+const mapX=n=>10+(n-BOUNDS.left)*mapScale, mapZ=n=>80+n*mapScale;
 function prepareMap(g) {
   const m=g.map;m.width=m.height=160;
-  const c=m.getContext('2d');
-  c.fillStyle='#31586c';c.fillRect(0,0,160,160);c.fillStyle='#a39473';c.fillRect(12,12,136,136);
-  const scale=136/(LIMIT*2), point=n=>80+n*scale;
+  const c=m.getContext('2d'), top=mapZ(BOUNDS.top),height=(BOUNDS.bottom-BOUNDS.top)*mapScale;
+  function land(a,b,color){c.fillStyle=color;c.fillRect(mapX(a),top,(b-a)*mapScale,height);}
+  c.fillStyle='#345b70';c.fillRect(0,0,160,160);
+  land(BOUNDS.left,DISTRICT_LINE,'#a39473');land(DISTRICT_LINE,ROAD_END,'#a39580');land(ROAD_END,SHORE,'#e2be83');
   c.fillStyle=`#${asphalt.toString(16)}`;
-  for(const road of ROADS){c.fillRect(point(road-6),12,12*scale,136);c.fillRect(12,point(road-6),136,12*scale);}
-  for(const b of g.town.buildings){c.fillStyle=`#${b.color.toString(16)}`;c.fillRect(point(b.x-b.w/2),point(b.z-b.d/2),b.w*scale,b.d*scale);}
+  for(const road of VERTICAL_ROADS)c.fillRect(mapX(road-6),top,12*mapScale,height);
+  for(const road of HORIZONTAL_ROADS)c.fillRect(mapX(BOUNDS.left),mapZ(road-6),(ROAD_END-BOUNDS.left)*mapScale,12*mapScale);
+  c.fillStyle='#baa16a';c.fillRect(mapX(BOARDWALK-3),top,6*mapScale,height);
+  for(const b of g.town.buildings){c.fillStyle=`#${b.color.toString(16)}`;c.fillRect(mapX(b.x-b.w/2),mapZ(b.z-b.d/2),b.w*mapScale,b.d*mapScale);}
+  c.textAlign='center';c.font='600 6px system-ui';c.fillStyle='#f6ddba';c.fillText('SUNSET',mapX(-6),25);c.fillText('LANTERN BAY',mapX(113),25);
 }
 function updateHud(g,speed) {
   const a=g.active, near=a?null:nearest(g), prompt=a?`Exit ${a.name}`:near?`Enter ${near.name}`:'';
@@ -267,26 +290,40 @@ function updateHud(g,speed) {
   ui.prompt.hidden=!prompt;
   if(ui['prompt-label'].textContent!==prompt)ui['prompt-label'].textContent=prompt;
   ui.visit.hidden=performance.now()>g.noticeUntil;
-  const m=ui.minimap.getContext('2d'), position=n=>80+n*136/(LIMIT*2);
+  const m=ui.minimap.getContext('2d');
   m.clearRect(0,0,160,160);m.save();m.beginPath();m.roundRect(3,3,154,154,10);m.clip();m.drawImage(g.map,0,0);
+  g.missions.map(m,mapX,mapZ);
   for(const v of g.vehicles) {
     v.badge.visible=v!==a&&v.root.position.distanceToSquared((a??g.player).root.position)<32**2;
     if(v===a)continue;
-    m.beginPath();m.arc(position(v.root.position.x),position(v.root.position.z),3,0,Math.PI*2);m.fillStyle=`#${v.color.toString(16)}`;m.fill();m.strokeStyle='#1d2e42';m.stroke();
+    m.beginPath();m.arc(mapX(v.root.position.x),mapZ(v.root.position.z),3,0,Math.PI*2);m.fillStyle=`#${v.color.toString(16)}`;m.fill();m.strokeStyle='#1d2e42';m.stroke();
   }
-  const p=a??g.player;m.translate(position(p.root.position.x),position(p.root.position.z));m.rotate(-p.heading);
+  const p=a??g.player,pos=p.root.position;
+  const district=pos.x>BOARDWALK+3?'Sunset Beach':pos.x>DISTRICT_LINE?'Lantern Bay':'Sunset District';
+  if($('district-name').textContent!==district)$('district-name').textContent=district;
+  m.translate(mapX(pos.x),mapZ(pos.z));m.rotate(-p.heading);
   m.beginPath();m.moveTo(0,-6);m.lineTo(4,4);m.lineTo(0,2);m.lineTo(-4,4);m.closePath();m.fillStyle='#fff2c9';m.fill();m.lineWidth=1.1;m.strokeStyle='#13243a';m.stroke();m.restore();
 }
 function animate(g,time) {
   requestAnimationFrame(t=>animate(g,t));
   if(g.state!=='play')return;
-  const dt=g.last?clamp((time-g.last)/1000,.001,.05):1/60;g.last=time;
+  const seconds=g.last?Math.max(0,(time-g.last)/1000):0;g.last=time;
+  // Small collision steps preserve handling even on displays that are slow to render.
+  const frame=seconds?clamp(seconds,.001,.30):1/60;
+  const steps=Math.ceil(frame/.034), dt=frame/steps;
   const held=new Set(g.touchKeys.values());
   const key=code=>g.keys.has(code)||held.has(code);
-  const speed=g.active?stepVehicle(g,dt,key):stepPlayer(g,dt,key);
-  updateCamera(g,dt);updateHud(g,speed);g.renderer.render(g.scene,g.camera);
+  let speed=0;
+  for(let i=0;i<steps;i++){
+    speed=g.active?stepVehicle(g,dt,key):stepPlayer(g,dt,key);
+    g.missions.update(dt,seconds/steps,(g.active??g.player).root.position);
+  }
+  const pos=(g.active??g.player).root.position;
+  g.missions.sync();g.sound.tick(frame,g.active,speed,g.player.grounded,pos.x,pos.z);
+  g.traffic(frame,pos);updateCamera(g,frame);g.town.update(frame,g.camera);updateHud(g,speed);
+  g.renderer.render(g.scene,g.camera);
 }
 export function startGame() {
   if(!game){game=createGame();requestAnimationFrame(t=>animate(game,t));}
-  reset(game);setState(game,'play');
+  reset(game,chosenMode());setState(game,'play');
 }

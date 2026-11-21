@@ -17,6 +17,7 @@
     <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4m0 1c5-5 9 5 14 0v9c-5 5-9-5-14 0"/></symbol>
     <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m12 8 4 4-4 4-4-4Z"/></symbol>
     <symbol id="i-sound" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15 8a5 5 0 0 1 0 8m3-11a9 9 0 0 1 0 14"/></symbol>
+    <symbol id="i-headlights" viewBox="0 0 24 24"><path d="M10 8c3-3 7-4 10-3v14c-3 1-7 0-10-3zM7 6 3 8m4 3-4 2m4 3-4 2"/></symbol>
     <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM16 9l5 6m0-6-5 6"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3 12h17m-7-7 7 7-7 7"/></symbol>
     <symbol id="i-mouse" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 6v4"/></symbol>
@@ -34,7 +35,7 @@
         <div class="hero-copy">
           <div class="eyebrow"><span></span> THE COAST IS YOURS</div>
           <h1 id="title">OFF THE<br><em>GRID<span>.</span></em></h1>
-          <p class="tagline">A small town. Four rides. No rules.</p>
+          <p class="tagline">Two districts. Seven rides. No rules.</p>
           <p class="intro">Take the scenic route through two seaside districts, on foot or on wheels.</p>
           <div class="mode-picker">
             <div class="micro mode-caption" id="mode-caption">CHOOSE AN ACTIVITY</div>
@@ -65,8 +66,8 @@
     <section id="hud" aria-label="Game HUD" hidden>
       <div class="hud-location glass"><span class="brand-mark"><svg><use href="#i-route"/></svg></span><div><div class="micro" id="hud-mode">FREE ROAM</div><strong id="district-name">Sunset District</strong></div></div>
       <div class="coin-hud glass" aria-label="Coins collected"><svg><use href="#i-coin"/></svg><b id="coin-count">00</b><small>/ 20</small></div>
-      <div class="hud-buttons"><button class="glass" id="sound-toggle" aria-label="Mute sound" title="Mute sound" aria-pressed="false"><svg><use href="#i-sound"/></svg></button><button class="glass" id="reset" aria-label="Reset position" title="Reset position (R)"><svg><use href="#i-reset"/></svg></button><button class="glass" id="pause" aria-label="Pause" title="Pause (Esc)"><svg><use href="#i-pause"/></svg></button></div>
-      <div class="hud-bottom"><div class="speed glass"><div id="ride" class="micro">ON FOOT</div><b id="speed">0</b><span> KM/H</span></div><div class="map glass"><span>N</span><canvas id="minimap" width="160" height="160" aria-label="Town minimap"></canvas></div></div>
+      <div class="hud-buttons"><button class="glass" id="headlight-toggle" aria-label="Headlights" aria-pressed="true" title="Switch headlights off (H)" hidden><svg><use href="#i-headlights"/></svg></button><button class="glass" id="sound-toggle" aria-label="Mute sound" title="Mute sound" aria-pressed="false"><svg><use href="#i-sound"/></svg></button><button class="glass" id="reset" aria-label="Reset position" title="Reset position (R)"><svg><use href="#i-reset"/></svg></button><button class="glass" id="pause" aria-label="Pause" title="Pause (Esc)"><svg><use href="#i-pause"/></svg></button></div>
+      <div class="hud-bottom"><div class="speed glass"><div id="ride" class="micro">ON FOOT</div><b id="speed">0</b><span> KM/H</span></div><div class="map glass"><span>N</span><small class="map-level" id="map-level" hidden>UPPER ROAD</small><canvas id="minimap" width="160" height="160" aria-label="Town minimap"></canvas></div></div>
       <section class="mission-hud glass" id="mission-hud" aria-label="Current mission" hidden>
         <div class="mission-top"><div><div class="micro" id="mission-step"></div><strong id="mission-title"></strong></div><b id="mission-clock" aria-label="Mission timer">00:00</b></div>
         <div class="mission-detail" id="mission-detail" aria-live="polite"></div>
